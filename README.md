@@ -2,19 +2,19 @@
 
 ## Overview
 
-This project provides a real-time, low-latency conversational Voice Assistant capable of transcribing speech, detecting emotional nuances over time, and speaking back dynamically using realistic emotional text-level cues and voices.
+This project provides a fully-fledged, real-time, low-latency conversational Voice Assistant. It is capable of transcribing user speech via WebSockets, detecting nuanced emotional shifts over time, and rendering a dynamic 3D avatar (via Three.js and TalkingHead) that speaks back to you with perfectly synced lip movements, facial blendshapes, and Cartesia's premium streaming voices.
 
 ### The Problem
 Traditional voice assistants suffer from three main issues:
-1. **High Latency**: Using sluggish third-party Text-to-Speech (TTS) and deep-learning ML services orchestrating locally in Python often incurs heavy generation wait times.
-2. **Robotic Tones**: Standard Voice AI outputs are monotonous and fail to adapt their inflection or pacing to the context of the user's emotional state.
-3. **Complex Infrastructure**: Local orchestration of Python ML workers usually requires large amounts of system resources, custom polling handlers, and disjointed API services.
+1. **High Latency**: Heavy Python orchestrations or sluggish TTS APIs cause noticeable wait times that break the illusion of real conversation.
+2. **Robotic Tones**: Standard AI voices remain monotonous. They do not interpret how you are feeling or adapt their own tone in response.
+3. **Static Interfaces**: Staring at a chat interface or a static image makes the process feel strictly like querying a search engine rather than engaging a persona.
 
 ### The Solution
-We circumvent these architectural flaws by leveraging **Groq** for ultra-fast STT/LLM intelligence and **Kokoro-JS** for high-quality, local, low-latency synthesis:
-1. **Lightweight Edge-like Performance**: Relegating high-density transcription and processing directly to Groq's high-performance hardware, while keeping TTS local to Node.js via lightweight ONNX models.
-2. **Dynamic Segmented Emotion**: Instead of simply returning a single flat emotion, the pipeline slices transcripts into independent phrases, scoring the `intensity` and `emotion` of every segment.
-3. **Emotional Prosody & Speed Manipulation**: By utilizing Kokoro-JS natively on the server (`onnx-community/Kokoro-82M-v1.0-ONNX`), we use custom text-level cues (ellipses, exclamations, filler words) and dynamically scale generation speed based on the emotional *intensity*.
+We circumvent these architectural flaws by leveraging **Groq** for ultra-fast STT/LLM intelligence, **Cartesia** for high-quality streaming TTS, and a dynamic **Three.js 3D Avatar** frontend:
+1. **Ultra-Fast Generation Pipeline**: Transcriptions and LLM inferences happen locally and instantaneously using Groq hardware. Cartesia streams raw TTS audio back instantly in continuous chunks via Server-Sent Events (SSE).
+2. **Dynamic Segmented Emotion & Blendshapes**: The pipeline slices the user's transcript into independent phrases, scoring the `intensity` and `emotion` of every segment. These values dynamically drive Three.js facial blendshapes (`viseme`, `eyeBlinkLeft`, etc.) so the avatar actively reacts to the context of the dialogue!
+3. **Stage Directions & Gestures**: The LLM parses out internal stage directions (e.g., `[looks away]`, `[sighs]`). The backend intercepts these text cues, passing them to the frontend to instantly trigger pre-baked Mixamo animations, completing the illusion of life.
 
 ---
 
@@ -22,27 +22,33 @@ We circumvent these architectural flaws by leveraging **Groq** for ultra-fast ST
 
 ```text
 [ Browser / Frontend ] 
-   │   (Microphone Stream via WebSocket)
+   │   (Microphone Audio Blob via WebSocket)
    ▼
 [ Node.js Express Server ]
-   │   (Binary validation)
+   │   (Buffer Assembly)
    ▼
-[ STT via Groq Whisper ] --> Output: "I can't believe this is happening..."
+[ Groq Whisper STT ] --> Output: "I can't believe this is happening..."
    │
-[ Emotion Engine via Groq Llama 3 ] --> Output: {"overall": "angry", "segments": [{"emotion": "angry", "intensity": 0.8}]}
+[ Groq Llama-3 Emotion Analysis ] --> Output: {"overall": "frustrated", "segments": [...], "vad": [valence, arousal, dominance]}
+   │   (Emotion & VAD immediately emitted to Client to morph the Avatar's expression)
+   ▼
+[ Groq Llama-3 Dialogue ] --> Output: "[sighs] I hear you. Let's take a breath together."
+   │   
+   ├─> [ Gesture Extractor ]  --> Triggers "Breathing Idle" animation via Websocket
+   ├─> [ Text Sanitization ]  --> Output: "I hear you. Let's take a breath together."
    │
-[ LLM Response Engine via Groq Llama 3 ] --> Output: "I hear you. Let's take a breath."
+   ▼
+[ TTS Engine via Cartesia API ]
+   │   - Matches textual emotion against custom speaking speeds and Cartesia controls.
+   │   - Receives raw chunked PCM Audio via HTTP SSE streams.
    │
+[ WebSocket Bridge ]
+   │   (Chunks piped as Base64 JSON directly to the Frontend)
    ▼
-[ TTS Engine via Kokoro-JS (ONNX) ]
-   │   - Maps emotion to specific base speeds and voice profiles.
-   │   - Formats text for prosody (e.g. converting commas to ellipses for sadness).
-   │   - Scales generation speed dynamically using the parsed intensity metric.
+[ TalkingHead / Three.js Frontend ]
+   │   (Decodes Base64 into Int16Array arrays. Once the stream ends, perfectly syncs audio playback with the Avatar's lip blendshapes!)
    ▼
-[ Node.js Express Server ]
-   │   (Sends generated binary ArrayBuffer .wav back to client)
-   ▼
-🔊 Audio Output via Web Audio API 
+🔊 Visual & Audio Output
 ```
 
 ---
@@ -51,61 +57,45 @@ We circumvent these architectural flaws by leveraging **Groq** for ultra-fast ST
 
 ```text
 ├── public/                 
-│   └── index.html               # The core frontend. Captures mic arrays, holds WS connection, and plays back received audio buffers.
+│   ├── index.html               # The frontend UI. Initializes Three.js, the 3D .glb avatar, microphone loops, and WebSockets.
+│   └── avatar.glb               # Your 3D Avatar file (Requires Oculus Visemes + ARKit shapes for lipsyncing).
 ├── src/
-│   ├── config/                  # Environment bounds and latency constants.
+│   ├── config/                  # Constants, bounds, and API key environment loaders.
 │   ├── controllers/             
-│   │   └── audioController.js   # Orchestrates WS events, pings, and guards session loops.
+│   │   └── audioController.js   # Master session controller. Ingests raw chunks, runs the pipeline, and safely maps WebSocket sends.
 │   ├── orchestrator/            
-│   │   └── pipeline.js          # Sequences STT -> Emotion Analysis -> LLM -> TTS. 
+│   │   └── pipeline.js          # The structural spine. Sequences STT -> Emotion Array -> LLM Dialogue -> TTS output.
 │   ├── services/                
-│   │   ├── whisperService.js    # Direct integration to `whisper-large-v3` via Groq.
-│   │   ├── emotionService.js    # Utilizes `llama-3.3-70b-versatile` to extract VAD and dynamic segments via formatted JSON.
-│   │   ├── llmService.js        # Generates responses utilizing the extracted vocal context array logic.
-│   │   └── ttsService.js        # Local TTS generation using Kokoro-JS and `onnx-community`. Modifies text based on intensity.
-│   └── server.js                # Core app, hosting Node Express + WebSocket server.
+│   │   ├── whisperService.js    # Groq whisper-large-v3 transcription integration.
+│   │   ├── emotionService.js    # Extracts Valence, Arousal, Dominance (VAD) and phrase-by-phrase sentiment mappings.
+│   │   ├── llmService.js        # The persona engine. Generates stage directions and dialogue reacting to the user's emotion.
+│   │   └── ttsService.js        # Cartesia integration. Manipulates speed coefficients and intercepts chunked Text-to-Speech streams.
+│   └── server.js                # Core entry point. Boots up Express.js and the raw HTTP WS Server.
 ├── .env                     
 └── package.json            
 ```
 
 ---
 
-## APIs & Endpoints
+## APIs & WebSocket Protocol (`ws://localhost:8080`)
 
-### 1. **WebSocket (`ws://localhost:8080`)**
+The primary communication gateway is full-duplex WebSockets to avoid HTTP overhead.
 
-The primary communication gateway is purely full-duplex WebSockets.
+### Incoming Events (Client → Server)
+- **Binary ArrayBuffer**: Standard `.webm` or `.wav` arrays. Piped directly into the processing sequence.
+- **Keep-Alive Ping (`{"type": "ping"}`)**: Injected every 5 seconds to bypass browser/network timeout closures.
 
-#### **Incoming Events (Client → Server)**
-- **Binary ArrayBuffer**: Standard `.webm` or `.wav` blobs. Automatically treated as audio payloads and piped straight into the pipeline sequence.
-- **Keep-Alive Ping (`{"type": "ping"}`)**: Injected every 5 seconds to guarantee the browser does not throttle the connection into a navigational drop code (e.g. `1001`). 
-
-#### **Outgoing Events (Server → Client)**
-- **`transcript`**: Dispatched instantaneously right after STT returns the user's recognized text.
-- **`emotion`**: Contains the timeline array:
-  ```json
-  {
-      "type": "emotion", 
-      "emotion": "sad", 
-      "vad": [ ... ],
-      "segments": [
-          { "text": "...", "emotion": "sad", "intensity": 0.8 },
-          { "text": "...", "emotion": "frustrated", "intensity": 0.3 }
-      ]
-  }
-  ```
-- **`llm_response`**: The text-based response generated by the LLM.
-- **Binary ArrayBuffer**: A fully formed `.wav` response generated by Kokoro-JS, sent down the WebSocket channel as raw binary payload for playback.
-
-### 2. **HTTP Interfaces (`http://localhost:8080`)**
-
-- **`GET /`**
-  - Serves the frontend `public/` directory over the same `localhost` origin port. 
-- **`GET /health`**
-  - **Response**: `{"status": "ok", "timestamp": "..."}` 
+### Outgoing Events (Server → Client)
+- **`transcript`**: Dispatched instantaneously right after STT transcription.
+- **`emotion`**: Contains the timeline array and the mathematical VAD values. Directs the avatar face shapes.
+- **`stage_direction`**: An array of animation cues like `["sighs"]` mapped against the internal TalkingHead gestures map.
+- **`llm_response`**: The final unscrubbed textual response generated by the LLM for chat-log display.
+- **`audio_chunk`**: An ongoing sequence of base64-encoded raw `Int16Array` audio chunks.
+- **`audio_end`**: The trigger lock. Tells the frontend to flush the audio buffer arrays and commence `head.speakAudio()`.
 
 ## Quick Start
-1. Ensure `.env` is updated with `GROQ_API_KEY`, etc.
-2. Run `npm install`
-3. Run `npm run start` or `node src/server.js` (Note: Kokoro-JS models will download to `./.cache` or equivalent on first initialization).
-4. Open `http://localhost:8080` in your web browser.
+1. Ensure `.env` is updated with `GROQ_API_KEY` and `CARTESIA_API_KEY`.
+2. Ensure you have a prepared `.glb` avatar loaded at `./public/avatar.glb` (*Note: The current index.html defaults to a remote Robot model to bypass local dependencies out of the box, you can swap it directly via the source file!*)
+3. Run `npm install`
+4. Run `npm run start` (or `node src/server.js`)
+5. Open `http://localhost:8080` in your web browser. Grant microphone permissions, hold the Live Mic button, and speak!

@@ -39,10 +39,37 @@
         .modeBtn.active { border-color: #6c63ff; color: #fff; background: #1a1a2e; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js/+esm",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+        "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.4/modules/talkinghead.mjs"
+      }
+    }
+    </script>
 </head>
 <body>
     <h1>🎙️ AI Voice Assistant</h1>
     <div id="status">🔴 Disconnected</div>
+
+    <!-- Add this div to your HTML, hide it after first click -->
+    <div id="startPrompt" style="
+      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:rgba(0,0,0,0.8); color:white; padding:20px; border-radius:10px;
+      font-size:18px; cursor:pointer; z-index:999;">
+      🎙️ Click anywhere to start
+    </div>
+
+    <script>
+    document.addEventListener("click", () => {
+      document.getElementById("startPrompt").style.display = "none";
+    }, { once: true });
+    </script>
+
+    <div id="avatar-container" style="width:400px; height:600px; position:relative; margin-bottom: 20px;">
+      <div id="avatar" style="width:100%; height:100%;"></div>
+    </div>
 
     <div id="modeToggle" style="display:flex;gap:10px;margin-bottom:20px;">
         <button id="liveBtn" class="modeBtn active" onclick="setMode('live')">🎙️ Live Mic</button>
@@ -94,6 +121,71 @@
         const emotionBar = document.getElementById('emotionBar');
         const conversation = document.getElementById('conversation');
 
+        let pcmChunks = [];
+        let currentEmotion = "neutral";
+        let currentIntensity = 0.5;
+
+        let head;
+
+        // --- Emotion → blendshape map ---
+        const EMOTION_BLENDSHAPES = {
+          happy:     { mouthSmile: 1.0, eyesHappy: 0.8, cheeksUp: 0.6 },
+          sad:       { mouthSad: 1.0, eyesSad: 0.8, browsWorried: 0.7 },
+          angry:     { mouthAngry: 0.9, browsAngry: 1.0, eyesAngry: 0.7 },
+          surprised: { mouthOpen: 0.8, eyesSurprised: 1.0, browsUp: 0.9 },
+          fearful:   { mouthOpen: 0.5, eyesSurprised: 0.7, browsWorried: 0.9 },
+          disgusted: { mouthDisgust: 1.0, browsAngry: 0.5, noseWrinkle: 0.8 },
+          confused:  { browsWorried: 0.6, mouthOpen: 0.3, eyesSad: 0.3 },
+          hopeful:   { mouthSmile: 0.5, browsUp: 0.4, eyesHappy: 0.4 },
+          excited:   { mouthSmile: 1.0, eyesHappy: 1.0, cheeksUp: 0.8 },
+          confident: { mouthSmile: 0.6, browsDown: 0.3, eyesHappy: 0.4 },
+          anxious:   { browsWorried: 0.8, mouthOpen: 0.3, eyesSad: 0.5 },
+          neutral:   {}
+        };
+
+        const MOOD_MAP = {
+          happy:     "happy",
+          sad:       "sad",
+          angry:     "angry",
+          surprised: "surprised",
+          fearful:   "fear",
+          disgusted: "disgust",
+          confused:  "sad",      // closest match
+          hopeful:   "happy",    // closest match
+          excited:   "happy",    // closest match
+          confident: "happy",    // closest match
+          anxious:   "fear",     // closest match
+          neutral:   "neutral",
+        };
+
+        // --- Stage direction → Mixamo animation name ---
+        const DIRECTION_ANIMATIONS = {
+          "looks away":  "Idle",
+          "sighs":       "Breathing Idle",
+          "nods":        "Head Nod",
+          "shrugs":      "Shrug",
+          "leans in":    "Talking",
+        };
+
+        async function initAvatar() {
+          const { TalkingHead } = await import("talkinghead");
+          head = new TalkingHead(
+            document.getElementById("avatar"),
+            { ttsEndpoint: "x", cameraView: "upper", cameraRotateEnable: true }
+          );
+          try {
+            await head.showAvatar({
+              url: "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.4/avatars/brunette.glb", 
+              body: "F", 
+              avatarMood: "neutral", 
+              lipsyncLang: "en"
+            });
+            console.log("[Avatar] Ready");
+          } catch (e) {
+            console.warn("[Avatar] Failed to load avatar.glb - Please place it in public/ folder", e);
+          }
+        }
+
         // ── Connect WebSocket ──────────────────────────────
         function connect() {
             ws = new WebSocket('ws://localhost:8080');
@@ -109,7 +201,7 @@
                 setTimeout(connect, 2000); // auto-reconnect
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
                 const payload = JSON.parse(event.data);
 
                 if (payload.type === 'transcript') {
@@ -117,20 +209,77 @@
                 }
 
                 if (payload.type === 'emotion') {
+                    currentEmotion = payload.emotion;
+                    currentIntensity = payload.segments?.[0]?.intensity ?? 0.5;
+
+                    // This is the correct TalkingHead way to set facial emotion
+                    if (head) {
+                        head.setMood(MOOD_MAP[currentEmotion] ?? "neutral");
+                    }
+
+                    // UI updates
                     showEmotion(payload.emotion, payload.vad, payload.segments);
                     if (payload.vad) updateChart(payload.vad);
                     if (payload.segments) showSegments(payload.segments);
                 }
 
+                if (payload.type === 'stage_direction') {
+                    if (head) {
+                        payload.directions.forEach(dir => {
+                          const anim = DIRECTION_ANIMATIONS[dir.toLowerCase()];
+                          if (anim) head.playGesture(anim);
+                        });
+                    }
+                }
+
+                if (payload.type === 'audio_chunk') {
+                    console.log("chunk received, size:", payload.audio?.length);
+                    if (payload.audio) {
+                        const binaryString = window.atob(payload.audio);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        pcmChunks.push(new Int16Array(bytes.buffer));
+                    }
+                }
+
                 if (payload.type === 'audio_response') {
                     addMessage('ai', payload.text, null);
+                }
+
+                if (payload.type === 'audio_end') {
+                    console.log("audio_end received, chunks:", pcmChunks.length);
                     
-                    if (payload.audio) {
-                        const audio = new Audio(`data:audio/mp3;base64,${payload.audio}`);
-                        audio.play();
-                    } else {
-                        speakWithEmotion(payload.text); // fallback
+                    if (pcmChunks.length === 0) return;
+
+                    // Merge all Int16Array chunks into one
+                    const totalLength = pcmChunks.reduce((sum, c) => sum + c.length, 0);
+                    const merged = new Int16Array(totalLength);
+                    let offset = 0;
+                    for (const chunk of pcmChunks) {
+                        merged.set(chunk, offset);
+                        offset += chunk.length;
                     }
+
+                    // Convert Int16Array → Float32Array (Web Audio needs -1.0 to 1.0 range)
+                    const float32 = new Float32Array(merged.length);
+                    for (let i = 0; i < merged.length; i++) {
+                        float32[i] = merged[i] / 32768.0;
+                    }
+
+                    // Create a proper AudioBuffer from the float32 data
+                    const sampleRate = 44100;
+                    const audioBuffer = head.audioCtx.createBuffer(1, float32.length, sampleRate);
+                    audioBuffer.copyToChannel(float32, 0);
+
+                    // Now pass the AudioBuffer to speakAudio
+                    head.speakAudio({
+                        audio: audioBuffer,
+                        avatarMood: MOOD_MAP[currentEmotion] ?? "neutral",
+                    });
+
+                    pcmChunks = [];
                     talkBtn.className = '';
                     talkBtn.innerText = '🎙️';
                 }
@@ -138,9 +287,22 @@
         }
 
         // ── Push to Talk ───────────────────────────────────
-        talkBtn.addEventListener('mousedown', startRecording);
+        talkBtn.addEventListener('mousedown', async () => {
+            if (head?.audioCtx?.state === "suspended") {
+                await head.audioCtx.resume();
+                console.log("[Audio] Context unlocked:", head.audioCtx.state);
+            }
+            startRecording();
+        });
         talkBtn.addEventListener('mouseup', stopRecording);
-        talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+        talkBtn.addEventListener('touchstart', async (e) => { 
+            e.preventDefault(); 
+            if (head?.audioCtx?.state === "suspended") {
+                await head.audioCtx.resume();
+                console.log("[Audio] Context unlocked:", head.audioCtx.state);
+            }
+            startRecording(); 
+        });
         talkBtn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
 
         async function startRecording() {
@@ -301,6 +463,16 @@
                 container.appendChild(chip);
             });
         }
+
+        let avatarReady = false;
+
+        document.addEventListener("click", async () => {
+          if (!avatarReady) {
+            avatarReady = true;
+            await initAvatar();
+            console.log("[Avatar] Initialized after user gesture");
+          }
+        }, { once: false });
 
         connect();
     </script>

@@ -69,9 +69,9 @@ export async function handleMessage(sessionId, rawMessage) {
       JSON.stringify({
         type: "audio_response",
         text: result.reply,
-        audio: result.audioBase64,
       })
     );
+    session.ws.send(JSON.stringify({ type: "audio_end" }));
   } catch (err) {
     logger.error('Pipeline error', { error: err.message });
     if (isAlive()) {
