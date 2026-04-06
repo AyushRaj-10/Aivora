@@ -27,7 +27,9 @@ function App() {
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       setOriginalAudio(url);
-      await sendToBackend(blob);
+
+      // Pass the blob AND the filename
+      await sendToBackend(blob, "recording.webm");
       stream.getTracks().forEach((t) => t.stop());
     };
 
@@ -46,13 +48,25 @@ function App() {
     else startRecording();
   };
 
-  const sendToBackend = async (blob) => {
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setOriginalAudio(URL.createObjectURL(file));
+    setLoading(true);
+
+    // Pass the actual file AND its real filename so Groq doesn't crash
+    await sendToBackend(file, file.name);
+  };
+
+  // 🔴 UPDATED: Now accepts a filename parameter
+  const sendToBackend = async (blobOrFile, filename) => {
     const formData = new FormData();
-    formData.append("audio", blob, "recording.webm");
+    formData.append("audio", blobOrFile, filename);
 
     try {
       const response = await axios.post(
-        "http://localhost:8000/analyze",
+        "http://localhost:3000/analyze",
         formData,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -63,7 +77,7 @@ function App() {
       }
     } catch (err) {
       console.error(err);
-      // Mock result for UI testing while backend isn't ready
+      // Fallback mock data if server fails
       setResult({
         transcript: "I'm fine with that.",
         surface_emotion: "neutral",
@@ -86,6 +100,7 @@ function App() {
   };
 
   function downloadKeyframes(result) {
+    if (!result) return;
     const keyframes = {
       line: result.enhanced_dialogue,
       emotion: {
@@ -94,7 +109,7 @@ function App() {
         contradiction_score: result.contradiction_score,
         vad: result.vad,
       },
-      keyframes: [
+      keyframes: result.keyframes || [
         { t: 0.0, mouthSmile: 0.3, browFurrow: 0.7, jawTension: 0.8 },
         { t: 0.5, mouthSmile: 0.2, browFurrow: 0.9, jawTension: 0.9 },
         { t: 1.2, mouthSmile: 0.3, browFurrow: 0.7, eyeContact: 0.1 },
@@ -144,33 +159,23 @@ function App() {
             Original
           </h2>
 
-          {/* Character Face */}
-          <div
-            className="bg-gray-800 rounded-xl h-48 flex items-center 
-                justify-center mb-4"
-          >
+          <div className="bg-gray-800 rounded-xl h-48 flex items-center justify-center mb-4">
             <CharacterFace vad={{ valence: 0, arousal: 0, dominance: 0 }} />
           </div>
 
-          {/* Dialogue */}
           <div className="bg-gray-800 rounded-lg p-4 min-h-16 mb-4">
             <p className="text-gray-300 italic">
               {transcript || "Your dialogue will appear here..."}
             </p>
           </div>
 
-          {/* Audio Player */}
           {originalAudio && (
             <audio controls src={originalAudio} className="w-full mb-4" />
           )}
 
-          {/* Emotion Tag */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Detected:</span>
-            <span
-              className="bg-gray-700 text-gray-300 text-xs px-3 
-                             py-1 rounded-full"
-            >
+            <span className="bg-gray-700 text-gray-300 text-xs px-3 py-1 rounded-full">
               {result?.surface_emotion || "neutral"}
             </span>
           </div>
@@ -182,15 +187,10 @@ function App() {
             Enhanced
           </h2>
 
-          {/* Character Face */}
-          <div
-            className="bg-gray-800 rounded-xl h-48 flex items-center 
-                justify-center mb-4"
-          >
+          <div className="bg-gray-800 rounded-xl h-48 flex items-center justify-center mb-4">
             <CharacterFace vad={result?.vad} loading={loading} />
           </div>
 
-          {/* Enhanced Dialogue */}
           <div className="bg-gray-800 rounded-lg p-4 min-h-16 mb-4">
             {loading ? (
               <p className="text-gray-500 italic">Analyzing...</p>
@@ -201,10 +201,7 @@ function App() {
                     "Enhanced dialogue will appear here..."}
                 </p>
                 {result?.stage_directions && (
-                  <ul
-                    className="text-xs text-gray-400 space-y-1 
-                                 border-t border-gray-700 pt-3"
-                  >
+                  <ul className="text-xs text-gray-400 space-y-1 border-t border-gray-700 pt-3">
                     {result.stage_directions.map((d, i) => (
                       <li key={i}>📌 {d}</li>
                     ))}
@@ -214,18 +211,13 @@ function App() {
             )}
           </div>
 
-          {/* Audio Player */}
           {enhancedAudio && (
             <audio controls src={enhancedAudio} className="w-full mb-4" />
           )}
 
-          {/* Emotion + Voice Note */}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs text-gray-500">True emotion:</span>
-            <span
-              className="bg-purple-900 text-purple-300 text-xs 
-                             px-3 py-1 rounded-full"
-            >
+            <span className="bg-purple-900 text-purple-300 text-xs px-3 py-1 rounded-full">
               {result?.true_emotion || "pending"}
             </span>
           </div>
@@ -239,7 +231,7 @@ function App() {
             </button>
           )}
           {result?.voice_note && (
-            <p className="text-xs text-yellow-400 italic">
+            <p className="text-xs text-yellow-400 italic mt-2">
               🎙 {result.voice_note}
             </p>
           )}
@@ -248,10 +240,7 @@ function App() {
 
       {/* VAD Bar */}
       {result?.vad && (
-        <div
-          className="mt-8 w-full max-w-6xl bg-gray-900 rounded-2xl 
-                        p-6 border border-gray-800"
-        >
+        <div className="mt-8 w-full max-w-6xl bg-gray-900 rounded-2xl p-6 border border-gray-800">
           <h3 className="text-gray-400 uppercase text-xs tracking-widest mb-4">
             Emotion Vector (VAD)
           </h3>
@@ -274,12 +263,15 @@ function App() {
         </div>
       )}
 
-      {/* Record Button */}
-      <button
-        onClick={handleRecord}
-        disabled={loading}
-        className={`mt-10 w-20 h-20 rounded-full text-2xl font-bold
-                    transition-all duration-200 shadow-lg
+      {/* Input Controls (Record OR Upload) */}
+      <div className="flex flex-col items-center mt-10">
+        <div className="flex items-center gap-8">
+          {/* Record Button */}
+          <button
+            onClick={handleRecord}
+            disabled={loading}
+            className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-lg
+                    transition-all duration-200
                     ${
                       isRecording
                         ? "bg-red-500 scale-110 animate-pulse"
@@ -287,31 +279,44 @@ function App() {
                           ? "bg-gray-600 cursor-not-allowed"
                           : "bg-purple-600 hover:bg-purple-500 hover:scale-105"
                     }`}
-      >
-        {isRecording ? "⏹" : loading ? "⏳" : "🎙"}
-      </button>
-      <p className="mt-3 text-xs text-gray-500">
-        {isRecording
-          ? "Recording... click to stop"
-          : loading
-            ? "Analyzing your performance..."
-            : "Click to speak a line"}
-      </p>
+          >
+            {isRecording ? "⏹" : "🎙"}
+          </button>
+
+          <span className="text-gray-500 font-bold tracking-widest text-sm">
+            OR
+          </span>
+
+          {/* Upload Button */}
+          <label
+            className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-lg
+                       transition-all duration-200 border-2 border-gray-700
+                       ${
+                         loading
+                           ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                           : "bg-gray-800 cursor-pointer hover:bg-gray-700 hover:border-gray-500 hover:scale-105"
+                       }`}
+          >
+            📁
+            <input
+              type="file"
+              accept="audio/mp3, audio/wav, audio/webm, audio/m4a, audio/flac"
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={loading || isRecording}
+            />
+          </label>
+        </div>
+        <p className="mt-4 text-xs text-gray-500">
+          {isRecording
+            ? "Recording... click to stop"
+            : loading
+              ? "Analyzing your performance..."
+              : "Click to speak OR select a file"}
+        </p>
+      </div>
     </div>
   );
-}
-
-function getEmotionEmoji(emotion) {
-  const map = {
-    anger: "😠",
-    joy: "😄",
-    sadness: "😢",
-    fear: "😨",
-    disgust: "🤢",
-    surprise: "😲",
-    neutral: "😐",
-  };
-  return map[emotion] || "🎭";
 }
 
 export default App;
