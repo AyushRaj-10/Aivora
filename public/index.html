@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Audio Tester</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; color: #fff; background-color: #1e1e1e;}
+        button { padding: 10px 15px; margin: 5px 0; background: #007bff; color: white; border: none; cursor: pointer;}
+        button:disabled { background: #555; }
+        .log-box { background: #111; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; white-space: pre-wrap;}
+    </style>
+</head>
+<body>
+    <h2>WebSocket Audio Tester</h2>
+    <p>Upload a .wav or .webm file to test the AI streaming pipeline.</p>
+    
+    <div>
+        <button id="connectBtn">1. Connect WebSocket</button>
+        <span id="status">🔴 Disconnected</span>
+    </div>
+
+    <div style="margin-top: 15px;">
+        <input type="file" id="audioFile" accept="audio/*" />
+    </div>
+
+    <div>
+        <button id="sendBtn" disabled>2. Send Audio (Binary)</button>
+    </div>
+
+    <h3>Server Responses:</h3>
+    <div id="logs" class="log-box"></div>
+    
+    <audio id="audioPlayer" controls style="display:none; margin-top:10px; width:100%;"></audio>
+
+    <script>
+        let ws;
+        const connectBtn = document.getElementById('connectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusSpan = document.getElementById('status');
+        const fileInput = document.getElementById('audioFile');
+        const logs = document.getElementById('logs');
+        const audioPlayer = document.getElementById('audioPlayer');
+
+        function log(msg) {
+            logs.innerHTML += `> ${msg}\n`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        connectBtn.onclick = () => {
+            ws = new WebSocket('ws://localhost:8080');
+            // Ensure we deal with arraybuffer binary natively
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                statusSpan.innerText = '🟢 Connected';
+                sendBtn.disabled = false;
+                log('WebSocket connected. Ready to stream.');
+
+                // Keep connection alive
+                setInterval(() => {
+                    if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
+                }, 5000);
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        log('Received: ' + JSON.stringify(payload, null, 2));
+
+                        if (payload.type === 'audio_response' && payload.text) {
+                            const utterance = new SpeechSynthesisUtterance(payload.text);
+                            utterance.rate = 1.0;
+                            utterance.pitch = 1.0;
+                            utterance.volume = 1.0;
+                            window.speechSynthesis.speak(utterance);
+                            log('🔊 Speaking: ' + payload.text);
+                        }
+                    } catch(e) {
+                         log('Raw Text: ' + event.data);
+                    }
+                } else {
+                    log('Received unknown binary chunk');
+                }
+            };
+
+            ws.onclose = () => {
+                statusSpan.innerText = '🔴 Disconnected';
+                sendBtn.disabled = true;
+                log('WebSocket connection closed.');
+            };
+
+            ws.onerror = (err) => {
+                log('WebSocket error occurred.');
+            };
+        };
+
+        sendBtn.onclick = async () => {
+            if (!fileInput.files.length) {
+                alert('Please select an audio file first!');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const buffer = await file.arrayBuffer(); // Get raw binary Buffer!
+            
+            log(`Sending binary audio: ${buffer.byteLength} bytes...`);
+            ws.send(buffer); // Send it directly over the socket
+        };
+    </script>
+</body>
+</html>
