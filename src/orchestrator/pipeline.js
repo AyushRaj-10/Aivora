@@ -42,10 +42,13 @@ async function processAudio(audioBuffer, history = [], onPartial = () => {}) {
   const { reply, enhancedDialogue } = await generateResponse(text, vad, emotion, history, segments);
   logger.debug(`[Pipeline] Step 2 (LLM) done in ${Date.now() - step2Start}ms`);
   
-  onPartial({ type: 'llm_response', reply });
+  onPartial({ type: 'llm_response', reply: enhancedDialogue });
 
+  // ─── STEP 3: TTS ───────────────────────────────────────
   const step3Start = Date.now();
-  const audioBase64 = await synthesizeSpeech(reply, emotion);
+  await synthesizeSpeech(enhancedDialogue, emotion, (chunkBuffer) => {
+    onPartial({ type: 'audio_chunk', audio: chunkBuffer.toString('base64') });
+  });
   logger.debug(`[Pipeline] Step 3 (TTS) done in ${Date.now() - step3Start}ms`);
 
   const total = Date.now() - pipelineStart;
@@ -63,7 +66,6 @@ async function processAudio(audioBuffer, history = [], onPartial = () => {}) {
     enhancedDialogue,
     reply,
     segments,
-    audioBase64,
     latencyMs: total,
   };
 }

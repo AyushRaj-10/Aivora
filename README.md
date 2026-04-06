@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project provides a real-time, low-latency conversational Voice Assistant capable of transcribing speech, detecting emotional nuances over time, and speaking back dynamically using realistic emotional text-level cues and voices.
+This project provides a real-time, low-latency conversational Voice Assistant capable of transcribing speech, detecting emotional nuances over time, and speaking back dynamically using realistic emotional text-level cues and high-quality voice streaming.
 
 ### The Problem
 Traditional voice assistants suffer from three main issues:
@@ -11,10 +11,10 @@ Traditional voice assistants suffer from three main issues:
 3. **Complex Infrastructure**: Local orchestration of Python ML workers usually requires large amounts of system resources, custom polling handlers, and disjointed API services.
 
 ### The Solution
-We circumvent these architectural flaws by leveraging **Groq** for ultra-fast STT/LLM intelligence and **Kokoro-JS** for high-quality, local, low-latency synthesis:
-1. **Lightweight Edge-like Performance**: Relegating high-density transcription and processing directly to Groq's high-performance hardware, while keeping TTS local to Node.js via lightweight ONNX models.
-2. **Dynamic Segmented Emotion**: Instead of simply returning a single flat emotion, the pipeline slices transcripts into independent phrases, scoring the `intensity` and `emotion` of every segment.
-3. **Emotional Prosody & Speed Manipulation**: By utilizing Kokoro-JS natively on the server (`onnx-community/Kokoro-82M-v1.0-ONNX`), we use custom text-level cues (ellipses, exclamations, filler words) and dynamically scale generation speed based on the emotional *intensity*.
+We circumvent these architectural flaws by leveraging **Groq** for ultra-fast STT/LLM intelligence and **Cartesia** for high-quality, high-speed streaming TTS:
+1. **Ultra-Fast Generation Pipeline**: Relegating STT and LLM processing directly to Groq's high-performance hardware, and utilizing Cartesia's SSE (Server-Sent Events) API to stream TTS audio to the client instantly.
+2. **Dynamic Segmented Emotion**: Instead of simply returning a single flat emotion, the pipeline slices transcripts into independent phrases, scoring the `intensity` and `emotion` of every segment via prompt engineering with a very fast LLM.
+3. **Emotional Prosody & Speed Manipulation**: Using Cartesia's experimental voice controls, we dynamically update emotional levels (`positivity:high`, `sadness:low`, etc.) and speaking speeds to perfectly match the avatar's conversational tone.
 
 ---
 
@@ -31,16 +31,17 @@ We circumvent these architectural flaws by leveraging **Groq** for ultra-fast ST
    │
 [ Emotion Engine via Groq Llama 3 ] --> Output: {"overall": "angry", "segments": [{"emotion": "angry", "intensity": 0.8}]}
    │
-[ LLM Response Engine via Groq Llama 3 ] --> Output: "I hear you. Let's take a breath."
+[ LLM Response Engine via Groq Llama 3 ] --> Output: "[looks away] I hear you. Let's take a breath."
+   │
+[ Text Sanitizer ] --> Output to TTS: "I hear you. Let's take a breath." (strips stage directions)
    │
    ▼
-[ TTS Engine via Kokoro-JS (ONNX) ]
-   │   - Maps emotion to specific base speeds and voice profiles.
-   │   - Formats text for prosody (e.g. converting commas to ellipses for sadness).
-   │   - Scales generation speed dynamically using the parsed intensity metric.
+[ TTS Engine via Cartesia API ]
+   │   - Maps detected text emotion to specific base speeds and Cartesia emotional profiles.
+   │   - Streams audio chunks in real-time back through the WebSocket connection via Server-Sent Events (SSE).
    ▼
 [ Node.js Express Server ]
-   │   (Sends generated binary ArrayBuffer .wav back to client)
+   │   (Sends generated binary raw PCM audio chunks back to client)
    ▼
 🔊 Audio Output via Web Audio API 
 ```
@@ -61,8 +62,8 @@ We circumvent these architectural flaws by leveraging **Groq** for ultra-fast ST
 │   ├── services/                
 │   │   ├── whisperService.js    # Direct integration to `whisper-large-v3` via Groq.
 │   │   ├── emotionService.js    # Utilizes `llama-3.3-70b-versatile` to extract VAD and dynamic segments via formatted JSON.
-│   │   ├── llmService.js        # Generates responses utilizing the extracted vocal context array logic.
-│   │   └── ttsService.js        # Local TTS generation using Kokoro-JS and `onnx-community`. Modifies text based on intensity.
+│   │   ├── llmService.js        # Generates responses utilizing the extracted vocal context array logic and injects stage directions.
+│   │   └── ttsService.js        # Remote TTS generation using Cartesia's SSE API. Modifies speaking parameters based on LLM output.
 │   └── server.js                # Core app, hosting Node Express + WebSocket server.
 ├── .env                     
 └── package.json            
@@ -82,20 +83,9 @@ The primary communication gateway is purely full-duplex WebSockets.
 
 #### **Outgoing Events (Server → Client)**
 - **`transcript`**: Dispatched instantaneously right after STT returns the user's recognized text.
-- **`emotion`**: Contains the timeline array:
-  ```json
-  {
-      "type": "emotion", 
-      "emotion": "sad", 
-      "vad": [ ... ],
-      "segments": [
-          { "text": "...", "emotion": "sad", "intensity": 0.8 },
-          { "text": "...", "emotion": "frustrated", "intensity": 0.3 }
-      ]
-  }
-  ```
-- **`llm_response`**: The text-based response generated by the LLM.
-- **Binary ArrayBuffer**: A fully formed `.wav` response generated by Kokoro-JS, sent down the WebSocket channel as raw binary payload for playback.
+- **`emotion`**: Contains the timeline array and overall analysis.
+- **`llm_response`**: The text-based response generated by the LLM (with stage directions included for UI rendering).
+- **`audio_chunk`**: An ongoing stream of base64-encoded raw audio chunks generated by Cartesia, formatted for streaming playback on the client.
 
 ### 2. **HTTP Interfaces (`http://localhost:8080`)**
 
@@ -105,7 +95,7 @@ The primary communication gateway is purely full-duplex WebSockets.
   - **Response**: `{"status": "ok", "timestamp": "..."}` 
 
 ## Quick Start
-1. Ensure `.env` is updated with `GROQ_API_KEY`, etc.
+1. Ensure `.env` is updated with `GROQ_API_KEY` and `CARTESIA_API_KEY`.
 2. Run `npm install`
-3. Run `npm run start` or `node src/server.js` (Note: Kokoro-JS models will download to `./.cache` or equivalent on first initialization).
+3. Run `npm run start` or `node src/server.js`
 4. Open `http://localhost:8080` in your web browser.

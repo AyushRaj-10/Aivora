@@ -69,7 +69,6 @@ export async function handleMessage(sessionId, rawMessage) {
       JSON.stringify({
         type: "audio_response",
         text: result.reply,
-        audio: result.audioBase64,
       })
     );
   } catch (err) {
