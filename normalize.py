@@ -1,3 +1,6 @@
+def clamp(n, minn=-1, maxn=1):
+    return max(min(maxn, n), minn)
+
 def normalize_vad(vad):
     valence = clamp(vad["valence"])
     arousal = clamp(vad["arousal"])

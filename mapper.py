@@ -1,15 +1,16 @@
 import random
-def map_emotion_to_face(norm):
+def map_to_face(norm):
     tension = norm['tension']
     control = norm['control']
     instability = norm['instability']
     valence = norm['valence']
     face = {}
-    # core expression
-    face["jawOpen"] = tension * 0.7
-    face["browFurrow"] = tension
+    # core expression (make eyebrows lower intensity)
+    face["browDownLeft"] = tension * 0.4
+    face["browDownRight"] = tension * 0.4
     #negative
     if valence < 0:
+        face["browInnerUp"] = (tension * 0.4) + (abs(valence) * 0.3)  # Forehead wrinkles (very important for sad/confused)
         face["mouthFrownLeft"] = abs(valence)
         face["mouthFrownRight"] = abs(valence)
 

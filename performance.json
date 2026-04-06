@@ -1,14 +1,52 @@
 {
-  "line": "I'm fine with that.",
-  "timestamp_start": 0.0,
-  "timestamp_end": 2.3,
-
+  "overall": "erratic",
   "vad": {
-    "valence": -0.72,
-    "arousal": 0.84,
-    "dominance": -0.31
+    "valence": -0.4,
+    "arousal": 0.5,
+    "dominance": 0.6
   },
-
-  "director_note": "Suppressed rage. Forced calm breaking down.",
-  "subtext": "Character is lying to themselves"
+  "segments": [
+    {
+      "text": "I really thought we were going to make it this time...",
+      "emotion": "sad",
+      "intensity": 0.4,
+      "valence": -0.6,
+      "arousal": 0.2
+    },
+    {
+      "text": "But you just proved to me that you haven't changed at all!",
+      "emotion": "angry",
+      "intensity": 0.9,
+      "valence": -0.8,
+      "arousal": 0.9
+    },
+    {
+      "text": "It hurts so much to realize that all those promises were just empty lies.",
+      "emotion": "sad",
+      "intensity": 0.7,
+      "valence": -0.9,
+      "arousal": 0.3
+    },
+    {
+      "text": "Who do you think you are doing this to me?!",
+      "emotion": "shocked",
+      "intensity": 0.9,
+      "valence": -0.5,
+      "arousal": 0.9
+    },
+    {
+      "text": "I am so completely furious with how you ruined everything!",
+      "emotion": "angry",
+      "intensity": 1.0,
+      "valence": -0.9,
+      "arousal": 1.0
+    },
+    {
+      "text": "I guess I just have to accept that it's over.",
+      "emotion": "sad",
+      "intensity": 0.3,
+      "valence": -0.8,
+      "arousal": 0.1
+    }
+  ]
 }
