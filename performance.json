@@ -1,0 +1,14 @@
+{
+  "line": "I'm fine with that.",
+  "timestamp_start": 0.0,
+  "timestamp_end": 2.3,
+
+  "vad": {
+    "valence": -0.72,
+    "arousal": 0.84,
+    "dominance": -0.31
+  },
+
+  "director_note": "Suppressed rage. Forced calm breaking down.",
+  "subtext": "Character is lying to themselves"
+}
