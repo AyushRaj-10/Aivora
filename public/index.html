@@ -3,137 +3,306 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Audio Tester</title>
+    <title>AI Voice Assistant</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; color: #fff; background-color: #1e1e1e;}
-        button { padding: 10px 15px; margin: 5px 0; background: #007bff; color: white; border: none; cursor: pointer;}
-        button:disabled { background: #555; }
-        .log-box { background: #111; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; white-space: pre-wrap;}
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #0f0f0f; color: #fff; display: flex; flex-direction: column; align-items: center; padding: 30px; min-height: 100vh; }
+        h1 { margin-bottom: 8px; font-size: 1.5rem; }
+        #status { color: #888; margin-bottom: 30px; font-size: 0.9rem; }
+        #talkBtn {
+            width: 120px; height: 120px; border-radius: 50%;
+            background: #1a1a2e; border: 3px solid #444;
+            color: white; font-size: 2.5rem; cursor: pointer;
+            transition: all 0.2s; margin-bottom: 30px;
+        }
+        #talkBtn.recording { background: #c0392b; border-color: #e74c3c; animation: pulse 1s infinite; }
+        #talkBtn.processing { background: #1a472a; border-color: #27ae60; }
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+        #emotionBar {
+            width: 100%; max-width: 600px; background: #1a1a1a;
+            border-radius: 12px; padding: 16px; margin-bottom: 20px;
+            display: none;
+        }
+        #emotionLabel { font-size: 1.1rem; margin-bottom: 10px; }
+        #vadBars { display: flex; gap: 10px; }
+        .vad-bar { flex: 1; }
+        .vad-bar label { font-size: 0.75rem; color: #888; display: block; margin-bottom: 4px; }
+        .vad-track { background: #333; border-radius: 4px; height: 8px; }
+        .vad-fill { height: 8px; border-radius: 4px; transition: width 0.4s; }
+        #conversation { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 12px; }
+        .msg { padding: 12px 16px; border-radius: 12px; max-width: 85%; font-size: 0.95rem; line-height: 1.5; }
+        .msg.user { background: #1e3a5f; align-self: flex-end; }
+        .msg.ai { background: #1a1a2e; align-self: flex-start; border-left: 3px solid #6c63ff; }
+        .msg .emotion-tag { font-size: 0.75rem; color: #888; margin-bottom: 4px; }
+        #hint { color: #555; font-size: 0.85rem; margin-bottom: 20px; }
+        .modeBtn { padding: 8px 20px; border-radius: 20px; border: 1px solid #444; background: #1a1a1a; color: #888; cursor: pointer; }
+        .modeBtn.active { border-color: #6c63ff; color: #fff; background: #1a1a2e; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h2>WebSocket Audio Tester</h2>
-    <p>Upload a .wav or .webm file to test the AI streaming pipeline.</p>
+    <h1>🎙️ AI Voice Assistant</h1>
+    <div id="status">🔴 Disconnected</div>
+
+    <div id="modeToggle" style="display:flex;gap:10px;margin-bottom:20px;">
+        <button id="liveBtn" class="modeBtn active" onclick="setMode('live')">🎙️ Live Mic</button>
+        <button id="uploadBtn" class="modeBtn" onclick="setMode('upload')">📁 Upload File</button>
+    </div>
+
+    <button id="talkBtn">🎙️</button>
+    <div id="hint">Hold to talk</div>
+
+    <!-- File upload section (hidden by default) -->
+    <div id="uploadSection" style="display:none; text-align:center;">
+        <input type="file" id="audioFile" accept="audio/*" style="margin-bottom:10px;color:#fff;" />
+        <br/>
+        <button id="sendFileBtn" onclick="sendFile()" style="padding:10px 24px;background:#6c63ff;border:none;color:white;border-radius:8px;cursor:pointer;">
+            Send Audio
+        </button>
+    </div>
+
+    <div id="emotionBar">
+        <div id="emotionLabel">🎭 Emotion: —</div>
+        <div id="vadBars">
+            <div class="vad-bar">
+                <label>Valence</label>
+                <div class="vad-track"><div class="vad-fill" id="valenceBar" style="width:50%;background:#3498db"></div></div>
+            </div>
+            <div class="vad-bar">
+                <label>Arousal</label>
+                <div class="vad-track"><div class="vad-fill" id="arousalBar" style="width:50%;background:#e67e22"></div></div>
+            </div>
+            <div class="vad-bar">
+                <label>Dominance</label>
+                <div class="vad-track"><div class="vad-fill" id="dominanceBar" style="width:50%;background:#9b59b6"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div style="width:100%;max-width:600px;margin-bottom:20px;">
+        <canvas id="emotionChart"></canvas>
+    </div>
     
-    <div>
-        <button id="connectBtn">1. Connect WebSocket</button>
-        <span id="status">🔴 Disconnected</span>
-    </div>
+    <div id="segmentDisplay" style="width:100%;max-width:600px;display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
 
-    <div style="margin-top: 15px;">
-        <input type="file" id="audioFile" accept="audio/*" />
-    </div>
-
-    <div>
-        <button id="sendBtn" disabled>2. Send Audio (Binary)</button>
-    </div>
-
-    <h3>Server Responses:</h3>
-    <div id="logs" class="log-box"></div>
-    
-    <audio id="audioPlayer" controls style="display:none; margin-top:10px; width:100%;"></audio>
+    <div id="conversation"></div>
 
     <script>
-        let ws;
-        const connectBtn = document.getElementById('connectBtn');
-        const sendBtn = document.getElementById('sendBtn');
-        const statusSpan = document.getElementById('status');
-        const fileInput = document.getElementById('audioFile');
-        const logs = document.getElementById('logs');
-        const audioPlayer = document.getElementById('audioPlayer');
+        let ws, mediaRecorder, audioChunks = [];
+        const talkBtn = document.getElementById('talkBtn');
+        const statusEl = document.getElementById('status');
+        const emotionBar = document.getElementById('emotionBar');
+        const conversation = document.getElementById('conversation');
 
-        let audioQueue = [];
-        let isPlaying = false;
-
-        function playNext() {
-            if (audioQueue.length === 0) { isPlaying = false; return; }
-            isPlaying = true;
-            const url = audioQueue.shift();
-            const audio = new Audio(url);
-            audio.onended = () => {
-                URL.revokeObjectURL(url); // clean up memory
-                playNext();
-            };
-            audio.play();
-        }
-
-        function log(msg) {
-            logs.innerHTML += `> ${msg}\n`;
-            logs.scrollTop = logs.scrollHeight;
-        }
-
-        connectBtn.onclick = () => {
+        // ── Connect WebSocket ──────────────────────────────
+        function connect() {
             ws = new WebSocket('ws://localhost:8080');
-            // Ensure we deal with arraybuffer binary natively
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
-                statusSpan.innerText = '🟢 Connected';
-                sendBtn.disabled = false;
-                log('WebSocket connected. Ready to stream.');
-
-                // Keep connection alive
-                setInterval(() => {
-                    if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
-                }, 5000);
-            };
-
-            ws.onmessage = async (event) => {
-                if (event.data instanceof ArrayBuffer || event.data instanceof Blob) {
-                    const blob = new Blob([event.data], { type: 'audio/wav' });
-                    const url = URL.createObjectURL(blob);
-                    audioQueue.push(url);
-                    if (!isPlaying) playNext();
-                    return;
-                }
-
-                if (typeof event.data === 'string') {
-                    try {
-                        const payload = JSON.parse(event.data);
-                        log('Received: ' + JSON.stringify(payload, null, 2));
-
-                        if (payload.type === 'audio_response' && payload.text) {
-                            log('🔊 Received audio_response text tags: ' + payload.text);
-                        }
-
-                        // Show emotion timeline in logs
-                        if (payload.type === 'emotion') {
-                            log(`🎭 Overall: ${payload.emotion}`);
-                            payload.segments?.forEach(s => {
-                                log(`  "${s.text}" → ${s.emotion} (${s.intensity})`);
-                            });
-                        }
-                    } catch(e) {
-                         log('Raw Text: ' + event.data);
-                    }
-                } else {
-                    log('Received unknown binary chunk');
-                }
+                statusEl.innerText = '🟢 Connected';
+                setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'ping' })), 5000);
             };
 
             ws.onclose = () => {
-                statusSpan.innerText = '🔴 Disconnected';
-                sendBtn.disabled = true;
-                log('WebSocket connection closed.');
+                statusEl.innerText = '🔴 Disconnected';
+                setTimeout(connect, 2000); // auto-reconnect
             };
 
-            ws.onerror = (err) => {
-                log('WebSocket error occurred.');
-            };
-        };
+            ws.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
 
-        sendBtn.onclick = async () => {
-            if (!fileInput.files.length) {
-                alert('Please select an audio file first!');
-                return;
+                if (payload.type === 'transcript') {
+                    addMessage('user', payload.text, null);
+                }
+
+                if (payload.type === 'emotion') {
+                    showEmotion(payload.emotion, payload.vad, payload.segments);
+                    if (payload.vad) updateChart(payload.vad);
+                    if (payload.segments) showSegments(payload.segments);
+                }
+
+                if (payload.type === 'audio_response') {
+                    addMessage('ai', payload.text, null);
+                    
+                    if (payload.audio) {
+                        const audio = new Audio(`data:audio/mp3;base64,${payload.audio}`);
+                        audio.play();
+                    } else {
+                        speakWithEmotion(payload.text); // fallback
+                    }
+                    talkBtn.className = '';
+                    talkBtn.innerText = '🎙️';
+                }
+            };
+        }
+
+        // ── Push to Talk ───────────────────────────────────
+        talkBtn.addEventListener('mousedown', startRecording);
+        talkBtn.addEventListener('mouseup', stopRecording);
+        talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+        talkBtn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
+
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunks = [];
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.start();
+            talkBtn.className = 'recording';
+            talkBtn.innerText = '🔴';
+        }
+
+        async function stopRecording() {
+            if (!mediaRecorder) return;
+            mediaRecorder.stop();
+            talkBtn.className = 'processing';
+            talkBtn.innerText = '⏳';
+
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                const buffer = await blob.arrayBuffer();
+                if (ws.readyState === 1) ws.send(buffer);
+                mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            };
+        }
+
+        // ── Mode Switching & File Upload ───────────────────
+        let currentMode = 'live';
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('liveBtn').className = 'modeBtn' + (mode === 'live' ? ' active' : '');
+            document.getElementById('uploadBtn').className = 'modeBtn' + (mode === 'upload' ? ' active' : '');
+            document.getElementById('talkBtn').style.display = mode === 'live' ? 'block' : 'none';
+            document.getElementById('hint').style.display = mode === 'live' ? 'block' : 'none';
+            document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
+        }
+
+        async function sendFile() {
+            const fileInput = document.getElementById('audioFile');
+            if (!fileInput.files.length) { alert('Please select an audio file first!'); return; }
+            const buffer = await fileInput.files[0].arrayBuffer();
+            if (ws.readyState === 1) {
+                ws.send(buffer);
+                talkBtn.className = 'processing';
             }
+        }
 
-            const file = fileInput.files[0];
-            const buffer = await file.arrayBuffer(); // Get raw binary Buffer!
+        // ── Emotion Display ────────────────────────────────
+        function showEmotion(emotion, vad, segments) {
+            emotionBar.style.display = 'block';
+            document.getElementById('emotionLabel').innerText = `🎭 ${emotion.toUpperCase()}`;
             
-            log(`Sending binary audio: ${buffer.byteLength} bytes...`);
-            ws.send(buffer); // Send it directly over the socket
+            const toPercent = v => `${Math.round((v + 1) / 2 * 100)}%`;
+            document.getElementById('valenceBar').style.width = toPercent(vad[0]);
+            document.getElementById('arousalBar').style.width = toPercent(vad[1]);
+            document.getElementById('dominanceBar').style.width = toPercent(vad[2]);
+        }
+
+        // ── Conversation UI ────────────────────────────────
+        function addMessage(role, text, emotion) {
+            const div = document.createElement('div');
+            div.className = `msg ${role}`;
+            if (emotion) div.innerHTML = `<div class="emotion-tag">🎭 ${emotion}</div>${text}`;
+            else div.innerText = text;
+            conversation.appendChild(div);
+            conversation.scrollTop = conversation.scrollHeight;
+        }
+
+        // ── Emotional Speech ───────────────────────────────
+        async function speakWithEmotion(text) {
+            const parts = text.split(/(\[pause\]|\[softly\]|\[firmly\]|\[warmly\]|\[sadly\]|\[excited\])/g);
+            let rate = 1.0, pitch = 1.0;
+
+            for (const part of parts) {
+                if (part === '[pause]') await new Promise(r => setTimeout(r, 600));
+                else if (part === '[softly]')  { rate = 0.85; pitch = 0.85; }
+                else if (part === '[sadly]')   { rate = 0.8;  pitch = 0.75; }
+                else if (part === '[firmly]')  { rate = 1.1;  pitch = 1.1; }
+                else if (part === '[warmly]')  { rate = 0.95; pitch = 1.05; }
+                else if (part === '[excited]') { rate = 1.2;  pitch = 1.2; }
+                else if (part.trim()) {
+                    await new Promise(resolve => {
+                        const u = new SpeechSynthesisUtterance(part.trim());
+                        u.rate = rate; u.pitch = pitch; u.volume = 1.0;
+                        u.onend = resolve;
+                        window.speechSynthesis.speak(u);
+                        rate = 1.0; pitch = 1.0;
+                    });
+                }
+            }
+        }
+
+        // ── Emotion Timeline Graph ──────────────────────────────
+        const ctx = document.getElementById('emotionChart').getContext('2d');
+        const emotionChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Valence',   data: [], borderColor: '#3498db', tension: 0.4, fill: false },
+                    { label: 'Arousal',   data: [], borderColor: '#e67e22', tension: 0.4, fill: false },
+                    { label: 'Dominance', data: [], borderColor: '#9b59b6', tension: 0.4, fill: false },
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { min: -1, max: 1 } },
+                plugins: { legend: { labels: { color: '#fff' } } },
+                backgroundColor: 'transparent',
+            }
+        });
+
+        let turnCount = 0;
+        function updateChart(vad) {
+            turnCount++;
+            emotionChart.data.labels.push(`Turn ${turnCount}`);
+            emotionChart.data.datasets[0].data.push(vad[0]);
+            emotionChart.data.datasets[1].data.push(vad[1]);
+            emotionChart.data.datasets[2].data.push(vad[2]);
+            emotionChart.update();
+        }
+
+        // ── Segment-by-Segment Chip Display ──────────────────────
+        const emotionColors = {
+            happy:       '#f1c40f',
+            sad:         '#3498db',
+            angry:       '#e74c3c',
+            fearful:     '#9b59b6',
+            excited:     '#e67e22',
+            neutral:     '#95a5a6',
+            melancholic: '#2980b9',
+            hopeful:     '#27ae60',
+            anxious:     '#e74c3c',
+            confident:   '#16a085',
+            frustrated:  '#d35400',
         };
+
+        function showSegments(segments) {
+            const container = document.getElementById('segmentDisplay');
+            container.innerHTML = '';
+            
+            segments?.forEach(seg => {
+                const chip = document.createElement('div');
+                chip.style.cssText = `
+                    background: ${emotionColors[seg.emotion] || '#555'}22;
+                    border: 1px solid ${emotionColors[seg.emotion] || '#555'};
+                    border-radius: 20px;
+                    padding: 6px 12px;
+                    font-size: 0.8rem;
+                    max-width: 100%;
+                `;
+                chip.innerHTML = `
+                    <span style="color:${emotionColors[seg.emotion] || '#fff'}">${seg.emotion}</span>
+                    <span style="color:#ccc;margin-left:6px">"${seg.text}"</span>
+                    <span style="color:#888;margin-left:6px">${Math.round(seg.intensity * 100)}%</span>
+                `;
+                container.appendChild(chip);
+            });
+        }
+
+        connect();
     </script>
 </body>
 </html>
