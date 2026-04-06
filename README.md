@@ -1,70 +1,104 @@
-# AI Voice Assistant Backend
+# AI Emotionally Intelligent Voice Assistant
 
-This project serves as a real-time, low-latency streaming Voice Assistant pipeline. It handles incoming raw speech audio, transcribes it, processes the text using a Large Language Model (LLM), and returns a textual response to the client which native browsers synthesize on-the-spot using the Web Speech API.
+## Overview
 
-## Project Evolution
-Previously, this project leveraged an external Python Machine Learning engine (`python_ml`) for emotion/VAD (Voice Activity Detection), and third-party services like OpenRouter and ElevenLabs for text generation and Text-to-Speech (TTS), respectively.
+This project provides a real-time, low-latency conversational Voice Assistant capable of transcribing speech, detecting emotional nuances over time, and speaking back dynamically using realistic emotional tags. 
 
-In its **current state**, the pipeline has been aggressively streamlined for minimal latency and maximum cost-efficiency:
-1. **Removed `python_ml`**: Avoids complex background polling and multi-service orchestration overhead.
-2. **Removed ElevenLabs TTS**: Handled directly in the frontend via the Web Speech API (`SpeechSynthesisUtterance`), eliminating generation wait-times completely.
-3. **Optimized for Groq**: All inferences (STT and LLM generation) operate entirely on ultra-fast Groq endpoints.
+### The Problem
+Traditional voice assistants suffer from three main issues:
+1. **High Latency**: Using sluggish third-party Text-to-Speech (TTS) and deep-learning ML services orchestrating locally in Python often incurs heavy generation wait times.
+2. **Robotic Tones**: Standard Voice AI outputs are monotonous and fail to adapt their inflection to the context of the user's emotional state.
+3. **Complex Infrastructure**: Local orchestration of Python ML workers usually requires large amounts of system resources, custom polling handlers, and disjointed API services.
+
+### The Solution
+We circumvent all these architectural flaws by leveraging **Groq** for ultra-fast intelligence and the **Web Speech API** for instantaneous native speech:
+1. **Lightweight Edge Performance**: Completely stripped away bulky local Python inference servers, relegating all high-density transcription and processing directly to Groq's high-performance hardware.
+2. **Dynamic Segmented Emotion**: Instead of simply returning a single flat emotion, the pipeline slices transcripts into independent phrases, scoring the `intensity` and `emotion` of every segment.
+3. **Zero-Latency TTS**: By pushing speech responsibilities strictly to the browser's native API (`SpeechSynthesisUtterance`), we eliminate generation wait time and inject dynamic modifiers like `[pause]`, `[softly]`, and `[firmly]` to dynamically shift playback speeds and pitches in real-time.
+
+---
+
+## Architecture
+
+```text
+[ Browser / Frontend ] 
+   │   (Microphone Stream via WebSocket)
+   ▼
+[ Node.js Express Server ]
+   │   (Binary validation)
+   ▼
+[ STT via Groq Whisper ] --> Output: "I can't believe this is happening..."
+   │
+[ Emotion Engine via Groq Llama 3 ] --> Output: {"overall": "angry", "segments": [...]}
+   │
+[ LLM Response Engine via Groq Llama 3 ] --> Output: "I hear you. [pause] Let's take a breath."
+   │
+   ▼
+[ Browser Web Speech API ]
+   │   - Extracts runtime tags -> `[pause]` triggers 600ms delays
+   │   - Restructures pitch and rate dynamically per phrase loop.
+   ▼
+🔊 Audio Output
+```
+
+---
 
 ## Folder Structure
 
 ```text
-├── public/
-│   └── index.html               # Web UI that records audio, communicates via WebSockets, and plays back TTS.
+├── public/                 
+│   └── index.html               # The core frontend. Captures mic arrays, holds WS connection, and dictates native Speech playback parameters.
 ├── src/
-│   ├── config/                  # Server configuration, Groq API keys, constants, and WS payload definitions.
-│   ├── controllers/             # WebSocket payload tracking and routing.
-│   │   └── audioController.js   # Handles binary streams, ping loops, and triggers the orchestrator.
-│   ├── middleware/              # Express middlewares (e.g., error handlers).
-│   ├── orchestrator/            # Where the magic happens.
-│   │   └── pipeline.js          # The STT -> LLM synchronous flow. 
-│   ├── services/                # External API integrators.
-│   │   ├── llmService.js        # Groq LLaMA 3 implementation.
-│   │   └── whisperService.js    # Groq Whisper large-v3 STT engine.
-│   ├── utils/                   # Helpers.
-│   │   ├── audioUtils.js        # Audio binary assertions.
-│   │   └── logger.js            # Logging integration.
-│   └── server.js                # Core Express app and WebSocket Server entrypoint.
-├── .env                         # Secrets configuration mapping.
-└── package.json                 # Node dependencies.
+│   ├── config/                  # Envrionment bounds and latency constants.
+│   ├── controllers/             
+│   │   └── audioController.js   # Orchestrates WS events, pings, and guards session loops.
+│   ├── orchestrator/            
+│   │   └── pipeline.js          # Sequences STT -> Emotion Array extraction -> LLM. 
+│   ├── services/                
+│   │   ├── whisperService.js    # Direct integration to `whisper-large-v3`.
+│   │   ├── emotionService.js    # Utilizes `llama-3.3-70b-versatile` to extract VAD and dynamic segments via formatted JSON.
+│   │   └── llmService.js        # Modifies system prompts using the extracted vocal context array logic.
+│   └── server.js                # Core app, hosting Node Express + WebSocket server.
+├── .env                     
+└── package.json            
 ```
-
-## API & Endpoints
-
-### 1. **WebSocket (`ws://localhost:8080`)**
-
-The primary interface for this real-time app operates purely on WebSockets.
-
-#### **Incoming Payloads (Client → Server)**
-- **Binary Data (`Buffer/ArrayBuffer`)**: When the server receives a binary blob, it considers it a raw audio file or chunk. The server evaluates the buffer size and runs it strictly through the pipeline (`audioController`).
-- **Ping Event (JSON object)**: To keep modern browsers from dropping connections due to navigation-idling, the front-end sends a `"type": "ping"` ping JSON over the connection every 5 seconds. The server catches this JSON payload safely and bails out before trying to transcode it.
-
-#### **Outgoing Payloads (Server → Client)**
-- **Transcript (`transcript`)**: An initial ping when Whisper successfully translates the user's audio.
-- **Audio Response (`audio_response`)**: The finalized text response composed by the LLM. *Note: this payload used to carry a `base64` audio byte stream from ElevenLabs, but now only provides the `"text"` field for the frontend to synthesize natively.*
 
 ---
 
-### 2. **Express HTTP Interfaces**
+## APIs & Endpoints
 
-The HTTP configuration operates natively alongside WebSockets.
+### 1. **WebSocket (`ws://localhost:8080`)**
 
-- **`GET /`** (Static Route)
-  - **Description**: Exposes all static assets residing in the `/public` folder. Navigating to `/` or `/index.html` serves up the frontend. Doing so via the HTTP port natively matches the domain origin for the Websocket connection, preventing sudden closures from security or CORS navigation blocks.
+The primary communication gateway is purely full-duplex WebSockets.
+
+#### **Incoming Events (Client → Server)**
+- **Binary ArrayBuffer**: Standard `.wav` or `.webm` blobs. Automatically treated as audio payloads and piped straight into the pipeline sequence.
+- **Keep-Alive Ping (`{"type": "ping"}`)**: Injected every 5 seconds from the HTML endpoint to guarantee the browser does not throttle the connection into a navigational drop code (e.g. `1001`). 
+
+#### **Outgoing Events (Server → Client)**
+- **`transcript`**: Dispatched instantaneously right after STT returns the text phrase.
+- **`emotion`**: Contains the timeline array:
+  ```json
+  {
+      "type": "emotion", 
+      "emotion": "sad", 
+      "vad": [ ... ],
+      "segments": [
+          { "text": "...", "emotion": "sad", "intensity": 0.8 },
+          { "text": "...", "emotion": "frustrated", "intensity": 0.3 }
+      ]
+  }
+  ```
+- **`audio_response`**: Returns the `text` string populated with emotional timeline tags (e.g., `[firmly]`, `[softly]`) for frontend audio synthesis.
+
+### 2. **HTTP Interfaces (`http://localhost:8080`)**
+
+- **`GET /`**
+  - Statically serves the `public/` directory so the WebSocket and HTML layer share the exact same `localhost` origin port (eliminating file:// security navigation closures). 
 - **`GET /health`**
-  - **Description**: Barebones uptime tracker. 
-  - **Response**: `{"status": "ok", "timestamp": "2026-..."}`
+  - **Response**: `{"status": "ok", "timestamp": "2026-..."}` 
 
-## Installation & Running
-
-1. Perform standard installations via `npm install`.
-2. Populate the `.env` variables with a valid Groq API Key:
-   ```env
-   GROQ_API_KEY=gsk_your_groq_api_key...
-   ```
-3. Run the development sequence via `node src/server.js`.
-4. Open the browser testing interface at `http://localhost:8080`.
+## Quick Start
+1. Ensure `.env` is updated with `GROQ_API_KEY`.
+2. Run `npm install`, followed by `node src/server.js`.
+3. Open `http://localhost:8080` in your web browser.
