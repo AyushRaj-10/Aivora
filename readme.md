@@ -10,25 +10,33 @@ Rather than relying on pre-baked animation clips or static emotional labels, thi
 - Autonomous eye blinking.
 - Bodily Head/Neck gestures.
 
-## ⚙️ Architecture & Data Flow
+## 🗂️ File Tree Structure
+```text
+📂 animation_b
+ ├── 📄 performance.json        # Input: The emotional script drafted by Voice/LLM layer
+ ├── 📄 main.py                 # Backend Core: Intersects the pipeline, parses JSON payload
+ ├── 📄 normalize.py            # Backend Util: Clamps and parses dynamic VAD intensity ranges
+ ├── 📄 mapper.py               # Backend Util: Maps VAD variables to ARKit facial blendshapes
+ ├── 📄 keyframes.py            # Backend Builder: Composes time-tracked facial, skeletal, and lip sync data
+ ├── 📄 animation_brief.json    # Intermediary payload housing calculated runtime tracking metrics
+ ├── 📄 index.html              # Frontend DOM containing the Three.js canvas layer
+ ├── 📄 player.js               # Frontend Engine: Binds RPM bones/meshes and synchronizes timing playback
+ ├── 📄 avatar.glb              # Standard 3D GLTF Ready Player Me asset containing Mixamorig rig
+ ├── 📄 rig_mapping.json        # Mixamorig skeleton index mapping references
+ ├── 📄 .gitignore              # Ignores cached compile files
+ └── 📄 readme.md               # Pipeline documentation
+```
 
-1. **Input JSON (`performance.json`)**
-   Takes in a multi-segmented emotional breakdown. The output derived from the Voice layer consists of:
-   - Overall emotional baseline values.
-   - Distinct sub-segments featuring dialogue text, specific emotion flags, intensity scores, and momentary VAD configurations.
+## ⚙️ Data Pipeline Workflow
 
-2. **Backend Processing (`main.py` -> `keyframes.py` -> `mapper.py`)**
-   The script parses the segments and compiles three parallel tracks into an `animation_brief.json` output:
-   - **VAD Keyframes**: Converts abstract signals (tension, Valence) to ARKit facial blendshapes (e.g. `browInnerUp`, `mouthFrownLeft`). Evaluates `intensity` thresholds to create graceful sine-wave arcs for emphasized expressions (like eyebrows going up on strong statements).
-   - **Viseme Keyframes**: Parses the text duration, identifies word segments, and plots `jawOpen`, `mouthFunnel`, and `mouthStretch` sequences synced to vowel syllables.
-   - **Bodily Motions**: Translates localized segment emotions (e.g., "sad", "confused") into skeletal joint rotations for `mixamorigHead` and `mixamorigNeck`.
-
-3. **Frontend Rendering (`player.js`)**
-   The Three.js web app ingests `animation_brief.json` and loads the `.glb` Ready Player Me model. It manages four concurrent systems:
-   - Renders the continuous VAD facial track.
-   - Steps through the rapid phoneme Viseme track.
-   - Pivots the skeletal joints flawlessly.
-   - Runs an independent continuous background heartbeat looping variable eye blinks (`eyeBlinkLeft`/`Right`).
+1. **Script Ingestion**: `performance.json` enters the pipeline containing VAD baseline metrics and temporal phrase segments (e.g., sad, angry, shocked).
+2. **Signal Normalization**: `main.py` parses these sequences and triggers `normalize.py` to assert mathematical safety bounds (clamp values between -1 and 1).
+3. **Blendshape Projection**: Normal metrics are subsequently dispatched into `mapper.py`, assigning the abstracted emotion values to strictly standardized ARKit shape arrays. 
+4. **Timeline Orchestration**: `keyframes.py` distributes the data structures iteratively over calculated frame cycles:
+     * Dispatches procedural sinusoidal curves for emphasis logic.
+     * Overrides bone rotations natively. 
+     * Synthesizes heuristic word-length syllables into mapped lip-sync phoneme arrays.
+5. **Runtime Rendering**: The completed `animation_brief.json` structure is streamed directly into `player.js` where the browser utilizes WebGL layers and `OrbitControls` to project continuous character animations alongside parallel independent behaviors like randomized eye-blinking.
 
 ## ▶️ Setup & Execution
 
