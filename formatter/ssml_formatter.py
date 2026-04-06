@@ -1,0 +1,3 @@
+def format_with_pauses(text):
+    # simple heuristic: keep existing ...
+    return text.replace("...", '<break time="500ms"/>')

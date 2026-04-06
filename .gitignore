@@ -1,0 +1,21 @@
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# User Data & Output
+scene.json
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

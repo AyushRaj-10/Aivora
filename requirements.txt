@@ -1,0 +1,9 @@
+numpy
+scipy
+pydantic
+requests
+python-dotenv
+webrtcvad
+pydub
+soundfile
+librosa
