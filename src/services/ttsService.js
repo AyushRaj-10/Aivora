@@ -46,7 +46,7 @@ export async function synthesizeSpeech(text, emotion = 'neutral', onChunk) {
       output_format: {
         container: "raw",
         encoding: "pcm_s16le",
-        sample_rate: 22050,
+        sample_rate: 44100,
       },
       stream: true,
     }),
@@ -81,7 +81,7 @@ export async function synthesizeSpeech(text, emotion = 'neutral', onChunk) {
       try {
         const json = JSON.parse(dataStr);
         if (json.data && onChunk) {
-          onChunk(Buffer.from(json.data, 'base64'));
+          onChunk(json.data);
         }
       } catch (err) {
         logger.error('[TTSService] Failed parsing chunk', { err: err.message });

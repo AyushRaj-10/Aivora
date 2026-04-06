@@ -71,6 +71,7 @@ export async function handleMessage(sessionId, rawMessage) {
         text: result.reply,
       })
     );
+    session.ws.send(JSON.stringify({ type: "audio_end" }));
   } catch (err) {
     logger.error('Pipeline error', { error: err.message });
     if (isAlive()) {
