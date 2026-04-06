@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@cartesia/cartesia-js':
+        specifier: ^3.0.0
+        version: 3.0.0(ws@8.20.0)
       axios:
         specifier: ^1.14.0
         version: 1.14.0
@@ -43,6 +46,14 @@ importers:
         version: 8.20.0
 
 packages:
+
+  '@cartesia/cartesia-js@3.0.0':
+    resolution: {integrity: sha512-NGbnUd1OYxaQ8LOCAqjEQWnwkzEJftIkDZiQLI2b2KXI+4zciInJpWxeDXCE6A7pVK69QP1+U4QHc9mumwpntQ==}
+    peerDependencies:
+      ws: ^8.18.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
 
   '@colors/colors@1.6.0':
     resolution: {integrity: sha512-Ir+AOibqzrIsL6ajt3Rz3LskB7OiMVHqltZmspbW/TJuTVuyOMirVqAkjfY6JISiLHgyNqicAC8AyHHGzNd/dA==}
@@ -814,6 +825,10 @@ packages:
     engines: {node: '>=18'}
 
 snapshots:
+
+  '@cartesia/cartesia-js@3.0.0(ws@8.20.0)':
+    optionalDependencies:
+      ws: 8.20.0
 
   '@colors/colors@1.6.0': {}
 

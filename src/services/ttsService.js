@@ -1,87 +1,48 @@
-import { KokoroTTS } from "kokoro-js";
 import logger from '../utils/logger.js';
 
-let tts = null;
+export async function synthesizeSpeech(text, emotion = 'neutral') {
+  const emotionMap = {
+    happy:      { speed: 'normal', emotion: ['positivity:high'] },
+    sad:        { speed: 'slow',   emotion: ['sadness:high'] },
+    angry:      { speed: 'fast',   emotion: ['anger:high'] },
+    excited:    { speed: 'fast',   emotion: ['positivity:high', 'surprise:high'] },
+    fearful:    { speed: 'fast',   emotion: ['fear:high'] },
+    neutral:    { speed: 'normal', emotion: [] },
+  };
 
-// Emotion is expressed through: speed + text-level cues injected before synthesis
-const EMOTION_STYLE_MAP = {
-  happy:     { voice: "af_heart",  speed: 1.15, prefix: ""                        },
-  sad:       { voice: "af_heart",  speed: 0.82, prefix: "... "                    },
-  angry:     { voice: "af_heart",  speed: 1.25, prefix: ""                        },
-  fearful:   { voice: "af_heart",  speed: 0.88, prefix: "... um... "              },
-  surprised: { voice: "af_heart",  speed: 1.1,  prefix: "Oh! "                    },
-  disgusted: { voice: "af_heart",  speed: 0.9,  prefix: ""                        },
-  neutral:   { voice: "af_heart",  speed: 1.0,  prefix: ""                        },
-};
+  const controls = emotionMap[emotion] || emotionMap.neutral;
 
-export async function initTTS() {
-  logger.info("[TTS] Loading Kokoro model...");
-  tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-    dtype: "q8",
-    device: "cpu",
+  const response = await fetch("https://api.cartesia.ai/tts/bytes", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.CARTESIA_API_KEY}`,
+      "Cartesia-Version": "2024-06-10",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model_id: "sonic-english",
+      transcript: text,
+      voice: {
+        mode: "id",
+        id: "a0e99841-438c-4a64-b679-ae501e7d6091", // default voice
+        __experimental_controls: {
+          speed: controls.speed,
+          emotion: controls.emotion,
+        },
+      },
+      output_format: {
+        container: "mp3",
+        encoding: "mp3",
+        sample_rate: 44100,
+      },
+    }),
   });
-  logger.info("[TTS] Kokoro ready.");
-}
 
-export async function synthesize(text, emotion = "neutral", intensity = 0.5) {
-  if (!tts) throw new Error("TTS not initialized");
-
-  const style = EMOTION_STYLE_MAP[emotion] ?? EMOTION_STYLE_MAP.neutral;
-
-  // Scale speed by intensity — more intense emotion = more exaggerated speed
-  // intensity comes from your emotion segment: { emotion, intensity: 0.0-1.0 }
-  const baseSpeed = style.speed;
-  const neutralSpeed = 1.0;
-  const scaledSpeed = neutralSpeed + (baseSpeed - neutralSpeed) * intensity;
-
-  // Strip LLM tags first
-  let cleanText = text.replace(/\[.*?\]/g, "").trim();
-
-  // Inject emotional text cues that influence Kokoro's prosody
-  cleanText = applyEmotionTextCues(cleanText, emotion, intensity);
-
-  // Add prefix
-  cleanText = style.prefix + cleanText;
-
-  logger.info(`[TTS] Synthesizing | emotion=${emotion} intensity=${intensity.toFixed(2)} speed=${scaledSpeed.toFixed(2)}`);
-
-  const audio = await tts.generate(cleanText, { voice: style.voice, speed: scaledSpeed });
-  return audio.toWav();
-}
-
-// This is the key function — Kokoro responds to punctuation and pacing cues in text
-function applyEmotionTextCues(text, emotion, intensity) {
-  switch (emotion) {
-    case "sad":
-      // Add ellipses to create natural pausing and slower delivery
-      return text
-        .replace(/,/g, "...")
-        .replace(/\. /g, "... ");
-
-    case "angry":
-      // Exclamation marks push Kokoro toward sharper, more clipped delivery
-      return text
-        .replace(/\. /g, "! ")
-        .replace(/,$/, "!");
-
-    case "fearful":
-      // Broken rhythm with ellipses simulates hesitation
-      return text
-        .replace(/ /g, (_, offset) => offset % 20 === 0 ? "... " : " ");
-
-    case "happy":
-      // Kokoro reads exclamations with higher energy
-      if (intensity > 0.6 && !text.endsWith("!")) {
-        return text.replace(/\.$/, "!");
-      }
-      return text;
-
-    case "surprised":
-      return text.endsWith("?") || text.endsWith("!")
-        ? text
-        : text.replace(/\.$/, "?!");
-
-    default:
-      return text;
+  if (!response.ok) {
+    throw new Error(`Cartesia TTS failed: ${response.status} ${await response.text()}`);
   }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  logger.debug('[TTSService] Cartesia direct HTTP done');
+  return buffer.toString('base64');
 }

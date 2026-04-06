@@ -69,13 +69,9 @@ export async function handleMessage(sessionId, rawMessage) {
       JSON.stringify({
         type: "audio_response",
         text: result.reply,
+        audio: result.audioBase64,
       })
     );
-    
-    // Transmit binary audio
-    if (result.wavBuffer) {
-      session.ws.send(result.wavBuffer);
-    }
   } catch (err) {
     logger.error('Pipeline error', { error: err.message });
     if (isAlive()) {
