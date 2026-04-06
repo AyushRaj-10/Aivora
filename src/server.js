@@ -7,6 +7,8 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { initTTS } from './services/ttsService.js';
+
 import config from './config/index.js';
 import logger from './utils/logger.js';
 import errorHandler from './middleware/errorHandler.js';
@@ -76,6 +78,8 @@ wss.on('connection', (ws, req) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+await initTTS(); // load Kokoro model into memory
+
 server.listen(config.server.port, () => {
   logger.info(`🚀 Server running on port ${config.server.port}`);
   logger.info(`📡 WebSocket ready at ws://localhost:${config.server.port}`);

@@ -42,6 +42,21 @@
         const logs = document.getElementById('logs');
         const audioPlayer = document.getElementById('audioPlayer');
 
+        let audioQueue = [];
+        let isPlaying = false;
+
+        function playNext() {
+            if (audioQueue.length === 0) { isPlaying = false; return; }
+            isPlaying = true;
+            const url = audioQueue.shift();
+            const audio = new Audio(url);
+            audio.onended = () => {
+                URL.revokeObjectURL(url); // clean up memory
+                playNext();
+            };
+            audio.play();
+        }
+
         function log(msg) {
             logs.innerHTML += `> ${msg}\n`;
             logs.scrollTop = logs.scrollHeight;
@@ -63,19 +78,30 @@
                 }, 5000);
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
+                if (event.data instanceof ArrayBuffer || event.data instanceof Blob) {
+                    const blob = new Blob([event.data], { type: 'audio/wav' });
+                    const url = URL.createObjectURL(blob);
+                    audioQueue.push(url);
+                    if (!isPlaying) playNext();
+                    return;
+                }
+
                 if (typeof event.data === 'string') {
                     try {
                         const payload = JSON.parse(event.data);
                         log('Received: ' + JSON.stringify(payload, null, 2));
 
                         if (payload.type === 'audio_response' && payload.text) {
-                            const utterance = new SpeechSynthesisUtterance(payload.text);
-                            utterance.rate = 1.0;
-                            utterance.pitch = 1.0;
-                            utterance.volume = 1.0;
-                            window.speechSynthesis.speak(utterance);
-                            log('🔊 Speaking: ' + payload.text);
+                            log('🔊 Received audio_response text tags: ' + payload.text);
+                        }
+
+                        // Show emotion timeline in logs
+                        if (payload.type === 'emotion') {
+                            log(`🎭 Overall: ${payload.emotion}`);
+                            payload.segments?.forEach(s => {
+                                log(`  "${s.text}" → ${s.emotion} (${s.intensity})`);
+                            });
                         }
                     } catch(e) {
                          log('Raw Text: ' + event.data);
